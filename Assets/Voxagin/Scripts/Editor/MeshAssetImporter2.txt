@@ -1,0 +1,317 @@
+using UnityEngine;
+using UnityEditor;
+using System.IO;
+using System.Collections.Generic;
+using Ngin;
+using TB;
+
+[UnityEditor.AssetImporters.ScriptedImporter(1, "nmsh")]
+public class MeshAssetImporter : UnityEditor.AssetImporters.ScriptedImporter {
+    private Vector2 RotateUV(Vector2 uv, float angle) {
+        float rad = angle * Mathf.Deg2Rad;
+        float cos = Mathf.Cos(rad);
+        float sin = Mathf.Sin(rad);
+        return new Vector2(
+            cos * uv.x - sin * uv.y,
+            sin * uv.x + cos * uv.y
+        );
+    }
+
+    public int VertexCheck(Vector3 position, List<Vector3> vertices) {
+        int i = 0;
+        foreach (Vector3 vert in vertices) {
+            if (Vector3.Distance(position, vert) < 0.0001f) {
+                return i;
+            }
+            i++;
+        }
+        return -1;
+    }
+
+    public override void OnImportAsset(UnityEditor.AssetImporters.AssetImportContext ctx) {
+        Lexicon lexicon = Lexicon.FromLexiconFilePath(ctx.assetPath);
+        Mesh mesh = new Mesh();
+        List<Vector3> vertices = new List<Vector3>();
+        List<Vector3> normals = new List<Vector3>();
+        List<Vector2> uvs = new List<Vector2>();
+        List<int> triangles = new List<int>();
+        List<BoneWeight> boneWeights = new List<BoneWeight>();
+        Lexicon poses = lexicon.Get<Lexicon>("poses", new Lexicon());
+
+        var faces = lexicon.Get<Lexicon>("faces");
+        bool smoothShading = lexicon.Get<bool>("smoothShading", true);
+        bool isAnim = lexicon.Get<bool>("isAnim", false);
+
+        foreach (var face in faces.Objects) {
+            var faceLexicon = face.Value as Lexicon;
+            var faceVertices = faceLexicon.Get<Lexicon>("vertices");
+
+            //int baseIndex = vertices.Count;
+            int vertexCount = faceVertices.Objects.Count;
+
+            List<int> vertIndices = new List<int>();
+
+            for (int i = 0; i < vertexCount; i++) {
+                var vertex = faceVertices.Get<Lexicon>(i.ToString());
+                var positionBag = vertex.Get<List<float>>("position");
+                var normalBag = vertex.Get<List<float>>("normal");
+                var uvBag = vertex.Get<List<float>>("uv");
+
+                Vector3 vertPos = new Vector3(positionBag[0], positionBag[1], positionBag[2]);
+                Vector3 vertNorm = new Vector3(normalBag[0], normalBag[1], normalBag[2]);
+                Vector2 uv = new Vector2(uvBag[0], uvBag[1]);
+
+                int vertIndex = VertexCheck(vertPos, vertices);
+                if (vertIndex != -1) {
+                    vertIndices.Add(vertIndex);
+                    
+                    // retrieve boneweights
+                    if (isAnim) {
+                        var boneWeightsBag = vertex.Get<List<float>>("boneWeights", new List<float>());
+                        var boneIndicesBag = vertex.Get<List<int>>("boneIndices", new List<int>());
+
+                        BoneWeight weight = boneWeights[vertIndex];
+
+                        if (boneWeightsBag.Count > 0 && boneIndicesBag.Count > 0 && weight.boneIndex0 == boneIndicesBag[0]) {
+                            weight.weight0 = (weight.weight0 + boneWeightsBag[0]) / 2;
+                            weight.boneIndex0 = boneIndicesBag[0];
+                        }
+                        if (boneWeightsBag.Count > 1 && boneIndicesBag.Count > 1  && weight.boneIndex1 == boneIndicesBag[1]) {
+                            weight.weight1 = (weight.weight1 + boneWeightsBag[1]) / 2;
+                            weight.boneIndex1 = boneIndicesBag[1];
+                        }
+                        if (boneWeightsBag.Count > 2 && boneIndicesBag.Count > 2  && weight.boneIndex2 == boneIndicesBag[2]) {
+                            weight.weight2 = (weight.weight2 + boneWeightsBag[2]) / 2;
+                            weight.boneIndex2 = boneIndicesBag[2];
+                        }
+                        if (boneWeightsBag.Count > 3 && boneIndicesBag.Count > 3  && weight.boneIndex3 == boneIndicesBag[3]) {
+                            weight.weight3 = (weight.weight3 + boneWeightsBag[3]) / 2;
+                            weight.boneIndex3 = boneIndicesBag[3];
+                        }
+                        
+                        boneWeights[vertIndex] = weight;
+                    }
+
+                } else {
+                    vertIndices.Add(vertices.Count);
+
+                    vertices.Add(vertPos);
+                    normals.Add(vertNorm);
+                    uvs.Add(uv);
+
+                    if (isAnim) {
+                        var boneWeightsBag = vertex.Get<List<float>>("boneWeights", new List<float>());
+                        var boneIndicesBag = vertex.Get<List<int>>("boneIndices", new List<int>());
+
+                        BoneWeight boneWeight = new BoneWeight();
+                        if (boneWeightsBag.Count > 0 && boneIndicesBag.Count > 0) {
+                            boneWeight.weight0 = boneWeightsBag[0];
+                            boneWeight.boneIndex0 = boneIndicesBag[0];
+                        }
+                        if (boneWeightsBag.Count > 1 && boneIndicesBag.Count > 1) {
+                            boneWeight.weight1 = boneWeightsBag[1];
+                            boneWeight.boneIndex1 = boneIndicesBag[1];
+                        }
+                        if (boneWeightsBag.Count > 2 && boneIndicesBag.Count > 2) {
+                            boneWeight.weight2 = boneWeightsBag[2];
+                            boneWeight.boneIndex2 = boneIndicesBag[2];
+                        }
+                        if (boneWeightsBag.Count > 3 && boneIndicesBag.Count > 3) {
+                            boneWeight.weight3 = boneWeightsBag[3];
+                            boneWeight.boneIndex3 = boneIndicesBag[3];
+                        }
+
+                        boneWeights.Add(boneWeight);
+                    }
+                }
+            }
+
+            // Triangulate the face
+            if (vertIndices.Count == 3) {
+                //triangles.Add(baseIndex + 2);
+                //triangles.Add(baseIndex + 1);
+                //triangles.Add(baseIndex);
+
+                triangles.Add(vertIndices[2]);
+                triangles.Add(vertIndices[1]);
+                triangles.Add(vertIndices[0]);
+
+            } else if (vertIndices.Count == 4) {
+                //triangles.Add(baseIndex);
+                //triangles.Add(baseIndex + 2);
+                //triangles.Add(baseIndex + 1);
+                
+                //triangles.Add(baseIndex);
+                //triangles.Add(baseIndex + 3);
+                //triangles.Add(baseIndex + 2);
+
+                triangles.Add(vertIndices[0]);
+                triangles.Add(vertIndices[2]);
+                triangles.Add(vertIndices[1]);
+
+                triangles.Add(vertIndices[0]);
+                triangles.Add(vertIndices[3]);
+                triangles.Add(vertIndices[2]);
+            }
+        }
+
+        Debug.Log("Imported mesh with " + vertices.Count + " vertices and " + faces.Length + " faces.");
+
+        mesh.SetVertices(vertices);
+        mesh.SetNormals(normals);
+        mesh.SetUVs(0, uvs);
+        mesh.SetTriangles(triangles, 0);
+
+        if (isAnim) {
+            mesh.boneWeights = boneWeights.ToArray();
+        }
+
+        float angle = 0.0f;
+        if (smoothShading) {
+            angle = 60.0f;
+        }
+
+        MeshNormalSolver.RecalculateNormals(mesh, 60.0f);
+
+        ctx.AddObjectToAsset("mesh", mesh);
+        ctx.SetMainObject(mesh);
+    }
+}
+
+
+
+
+
+''''''''''''''''''
+
+
+using UnityEngine;
+using UnityEditor;
+using System.IO;
+using System.Collections.Generic;
+using Ngin;
+using TB;
+
+[UnityEditor.AssetImporters.ScriptedImporter(1, "nmsh")]
+public class MeshAssetImporter : UnityEditor.AssetImporters.ScriptedImporter {
+    private Vector2 RotateUV(Vector2 uv, float angle) {
+        float rad = angle * Mathf.Deg2Rad;
+        float cos = Mathf.Cos(rad);
+        float sin = Mathf.Sin(rad);
+        return new Vector2(
+            cos * uv.x - sin * uv.y,
+            sin * uv.x + cos * uv.y
+        );
+    }
+
+    public int VertexCheck(Vector3 position, List<Vector3> vertices) {
+        int i = 0;
+        foreach (Vector3 vert in vertices) {
+            if (Vector3.Distance(position, vert) < 0.0001f) {
+                return i;
+            }
+            i++;
+        }
+        return -1;
+    }
+
+    public override void OnImportAsset(UnityEditor.AssetImporters.AssetImportContext ctx) {
+        Lexicon lexicon = Lexicon.FromLexiconFilePath(ctx.assetPath);
+        Mesh mesh = new Mesh();
+        List<Vector3> vertices = new List<Vector3>();
+        List<Vector3> normals = new List<Vector3>();
+        List<Vector2> uvs = new List<Vector2>();
+        List<int> triangles = new List<int>();
+        List<BoneWeight> boneWeights = new List<BoneWeight>();
+        List<Matrix4x4> bindPoses = new List<Matrix4x4>();
+        Lexicon poses = lexicon.Get<Lexicon>("poses", new Lexicon());
+
+        var faces = lexicon.Get<Lexicon>("faces");
+        bool smoothShading = lexicon.Get<bool>("smoothShading", true);
+        bool isAnim = lexicon.Get<bool>("isAnim", false);
+
+        foreach (var face in faces.Objects) {
+            var faceLexicon = face.Value as Lexicon;
+            var faceVertices = faceLexicon.Get<Lexicon>("vertices");
+
+            int baseIndex = vertices.Count;
+            int vertexCount = faceVertices.Objects.Count;
+
+            
+            for (int i = 0; i < vertexCount; i++) {
+                var vertex = faceVertices.Get<Lexicon>(i.ToString());
+                var positionBag = vertex.Get<List<float>>("position");
+                var normalBag = vertex.Get<List<float>>("normal");
+                var uvBag = vertex.Get<List<float>>("uv");
+
+                Vector3 vertPos = new Vector3(positionBag[0], positionBag[1], positionBag[2]);
+                Vector3 vertNorm = new Vector3(normalBag[0], normalBag[1], normalBag[2]);
+                Vector2 uv = new Vector2(uvBag[0], uvBag[1]);
+
+                vertices.Add(vertPos);
+                normals.Add(vertNorm);
+                uvs.Add(uv);
+
+                if (isAnim) {
+                    var boneWeightsBag = vertex.Get<List<float>>("boneWeights", new List<float>());
+                    var boneIndicesBag = vertex.Get<List<int>>("boneIndices", new List<int>());
+
+                    BoneWeight boneWeight = new BoneWeight();
+                    if (boneWeightsBag.Count > 0 && boneIndicesBag.Count > 0) {
+                        boneWeight.weight0 = boneWeightsBag[0];
+                        boneWeight.boneIndex0 = boneIndicesBag[0];
+                    }
+                    if (boneWeightsBag.Count > 1 && boneIndicesBag.Count > 1) {
+                        boneWeight.weight1 = boneWeightsBag[1];
+                        boneWeight.boneIndex1 = boneIndicesBag[1];
+                    }
+                    if (boneWeightsBag.Count > 2 && boneIndicesBag.Count > 2) {
+                        boneWeight.weight2 = boneWeightsBag[2];
+                        boneWeight.boneIndex2 = boneIndicesBag[2];
+                    }
+                    if (boneWeightsBag.Count > 3 && boneIndicesBag.Count > 3) {
+                        boneWeight.weight3 = boneWeightsBag[3];
+                        boneWeight.boneIndex3 = boneIndicesBag[3];
+                    }
+
+                    boneWeights.Add(boneWeight);
+                }
+            }
+
+            // Triangulate the face
+            if (vertexCount == 3) {
+                triangles.Add(baseIndex + 2);
+                triangles.Add(baseIndex + 1);
+                triangles.Add(baseIndex);
+            } else if (vertexCount == 4) {
+                triangles.Add(baseIndex);
+                triangles.Add(baseIndex + 2);
+                triangles.Add(baseIndex + 1);
+                triangles.Add(baseIndex);
+                triangles.Add(baseIndex + 3);
+                triangles.Add(baseIndex + 2);
+            }
+        }
+
+        Debug.Log("Imported mesh with " + vertices.Count + " vertices and " + faces.Length + " faces.");
+
+        mesh.SetVertices(vertices);
+        mesh.SetNormals(normals);
+        mesh.SetUVs(0, uvs);
+        mesh.SetTriangles(triangles, 0);
+
+        if (isAnim) {
+            mesh.boneWeights = boneWeights.ToArray();
+        }
+
+        float angle = 0.0f;
+        if (smoothShading) {
+            angle = 60.0f;
+        }
+
+        MeshNormalSolver.RecalculateNormals(mesh, 60.0f);
+
+        ctx.AddObjectToAsset("mesh", mesh);
+        ctx.SetMainObject(mesh);
+    }
+}

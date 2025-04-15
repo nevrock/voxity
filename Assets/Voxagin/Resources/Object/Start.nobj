@@ -1,0 +1,47 @@
+name: Start
+children: 
+    Sun: 
+        name: Sun
+        children: 
+        transform: 
+            position: [0.0, 0.0, 0.0]
+            rotation: [90.0, -45.00000125223908, -21.99999833547605]
+            scale: [1.0, 1.0, 1.0]
+        components: 
+            light: 
+                type: nLight
+                color: [1.0, 1.0, 1.0]
+                intensity: 1.0
+    Probe: 
+        name: Probe
+        children: 
+        transform: 
+            position: [0.0, 3.0, 0.0]
+            rotation: [0.0, 0.0, 0.0]
+            scale: [1.0, 1.0, 1.0]
+    Plane: 
+        name: Plane
+        children: 
+        transform: 
+            position: [0.0, 0.0, 0.0]
+            rotation: [0.0, 0.0, 0.0]
+            scale: [1.0, 1.0, 1.0]
+        components: 
+            mesh: 
+                type: nMeshRenderer
+        FBXFile: Plane
+        FBX: true
+    CameraMain: 
+        name: CameraMain
+        children: 
+        transform: 
+            position: [-20.0, 17.5, -20.0]
+            rotation: [29.999998330347886, 45.00000466733367, -1.2893764105375985e-06]
+            scale: [1.0, 1.0, 1.0]
+        components: 
+            camera: 
+                type: nCamera
+                isOrthographic: false
+                focalLength: 60.0
+                near: 0.10000000149011612
+                far: 1000.0
